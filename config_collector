@@ -1,0 +1,135 @@
+import time
+import logging
+from git import Repo
+from my_secure import *
+from netmiko import (
+    ConnectHandler,
+    NetmikoTimeoutException,
+    NetmikoAuthenticationException,
+)
+import pandas as pd
+from pathlib import Path
+from multiprocessing.dummy import Pool as ThreadPool
+
+format_date = '%d.%m.%Y %H:%M:%S'
+logging.basicConfig(filename='backup_error_log.log',
+                    # format='%(asctime)s %(threadName)s %(name)s %(levelname)s: %(message)s',
+                    format='%(asctime)s %(levelname)s: %(message)s',
+                    # level=logging.INFO,
+                    datefmt=format_date)
+
+
+def write_config_to_file(some_data, filename):
+    if not some_data:
+        return
+
+    path = Path('backup_config')
+    path.mkdir(exist_ok=True)
+    with open(Path(path, filename), encoding='utf-8', mode='w+') as file:
+        for value in some_data.values():
+            file.write(value)
+
+
+def set_instance_device_and_connect_from_df(row):
+    device_name = row['hostname']
+    *_, device_model = device_name.strip().split('-')
+    if any(device_model in value for value in dict_device.values()):
+        time_start = time.monotonic()
+        key, *_ = [key for key, value in dict_device.items() if device_model in value]
+        some_device = key(row['ip2 mgmt'], device_name)
+        result = some_device.send_show_command()
+        write_config_to_file(result, device_name)
+        time_execute = time.monotonic() - time_start
+        # print(f'data for {device_name} success wrote to file in {round(time_execute, 2)} seconds')
+    else:
+        logging.warning(f'unknown model of device {device_name}')
+
+def git_push():
+    path_repo = Path.cwd()
+    commit_msg = f'new commit of backup done at {time.strftime(format_date, time.localtime())}'
+    repo = Repo(path_repo)
+    repo.index.add(['backup_config', 'backup_error_log.log'])
+    repo.index.commit(commit_msg)
+    origin = repo.remote(name='origin')
+    origin.push(force=True)
+    print(f'all files was pushed into repo {repo}')
+
+class Device:
+    """Basic class of device"""
+    device_type = ''
+    list_command = []
+
+    def __init__(self, some_host_ip, some_hostname=''):
+        self.host_ip = some_host_ip
+        self.hostname = some_hostname
+
+        self.device = {
+            'device_type': self.device_type,
+            'host': self.host_ip,
+            'username': LAN_USER_LOCAL,
+            'password': LAN_PWD_LOCAL,
+            'secret': LAN_ENA,
+        }
+
+    def send_show_command(self):
+        """function for sending some list of command to device """
+        some_result = {}
+        try:
+            # logging.info(f'ssh start with {self.host_ip}, {self.hostname}')
+            with ConnectHandler(**self.device) as ssh:
+                ssh.enable()
+                for command in self.list_command:
+                    output = ssh.send_command(command)
+                    some_result[command] = output
+            return some_result
+        except (NetmikoTimeoutException, NetmikoAuthenticationException) as error:
+            # some strange way to extract useful args from exception:
+            error_msg_exp, *_ = list(filter(lambda x: 'Device settings' in x, error.args[0].split('\n')))
+            logging.error(f'{error_msg_exp}, {self.hostname} some problem with ssh')
+
+
+class DeviceCisco(Device):
+    """Child class device cisco"""
+    device_type = 'cisco_ios'
+    list_command = ['show version | exclude uptime|Uptime|restarted', 'show inventory', 'show configuration', ]
+
+
+class DeviceHPE(Device):
+    """Child class device HP"""
+    device_type = 'hp_comware'
+    list_command = ['display  version | exclude uptime', 'display device manuinfo', 'display current']
+
+
+# Types of device:
+dict_device = {
+    DeviceCisco: ['C1111'],
+    DeviceHPE: ['MSR1003', 'MSR3012']
+}
+
+# File Excel for first parsing:
+file2021 = r'\\rtrs.local\rtrs\RTRS\ДИТ\ЕИП\Сеть\netbox\IP_net_export.xlsm'
+
+if __name__ == "__main__":
+    df2021 = pd.read_excel(file2021, sheet_name='Data', usecols=['hostname', 'ip2 mgmt'])
+    # deleting Nan values in two columns:
+    df2021 = df2021.dropna(subset=['hostname', 'ip2 mgmt'])
+
+    # another way for deleting Nan:
+    # df2021 = df2021[df2021[['hostname', 'ip2 mgmt']].notnull().all(1)]
+
+    # We need only two columns
+    # df2021 = df2021.filter(items=['hostname', 'ip2 mgmt'])
+
+    time_start_all = time.monotonic()
+    # df2021[:10].apply(set_instance_device_and_connect_from_df, axis=1)
+    rows_iter = (row for index, row in df2021.iterrows())
+
+    # Threads:
+    with ThreadPool(30) as pool:
+        pool.map(set_instance_device_and_connect_from_df, rows_iter)
+
+    time_execute_all = time.monotonic() - time_start_all
+
+    print(f'data for all hosts success wrote to files in {round(time_execute_all, 2)} seconds, '
+          f'except in file backup_error_log.log')
+    git_push()
