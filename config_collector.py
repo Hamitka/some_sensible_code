@@ -17,11 +17,11 @@ FILENAME_LOG = 'backup_error.log'
 FOLDER_BACKUP = 'backup_config_v2'
 FILE_KEY_PEM = Path('C:\Install\private-key.pem')
 # FILE_KEY_PEM = Path('/mnt/c/Install/private-key.pem')
-format_date = '%d.%m.%Y %H:%M:%S'
+log_format_date = '%d.%m.%Y %H:%M:%S'
 logging.basicConfig(filename=FILENAME_LOG,
                     format='%(asctime)s %(levelname)s: %(message)s',
                     # level=logging.INFO,
-                    datefmt=format_date)
+                    datefmt=log_format_date)
 DICT_VENDOR = {
     'Cisco': 'cisco_ios',
     'HPE': 'hp_comware',
@@ -52,22 +52,22 @@ def get_devices_from_netbox():
     dict_devices = defaultdict(defaultdict)
     logging.warning('finished collecting data from netbox')
     for item in list_secrets:
-        dev_hostname = item.assigned_object.name
+        device_hostname = item.assigned_object.name
         if item.role.name == 'enable':
-            dict_devices[dev_hostname]['secret'] = item.plaintext
+            dict_devices[device_hostname]['secret'] = item.plaintext
         elif item.role.name == 'terminal':
-            dev_vendor = item.assigned_object.device_type.manufacturer.name
-            if dev_vendor in DICT_VENDOR.keys():
-                dict_devices[dev_hostname]['device_type'] = DICT_VENDOR[dev_vendor]
+            device_vendor = item.assigned_object.device_type.manufacturer.name
+            if device_vendor in DICT_VENDOR.keys():
+                dict_devices[device_hostname]['device_type'] = DICT_VENDOR[device_vendor]
 
-            dict_devices[dev_hostname]['username'] = item.name
-            dict_devices[dev_hostname]['password'] = item.plaintext
+            dict_devices[device_hostname]['username'] = item.name
+            dict_devices[device_hostname]['password'] = item.plaintext
             try:
-                dev_ip = ipaddress.ip_interface(item.assigned_object.primary_ip.address).ip
-                dict_devices[dev_hostname]['host'] = str(dev_ip)
+                device_ip = ipaddress.ip_interface(item.assigned_object.primary_ip.address).ip
+                dict_devices[device_hostname]['host'] = str(device_ip)
             except Exception as error:
                 logging.critical(
-                    f'cannot get ip from netbox for {item.name, dev_hostname},  {error.__class__.__name__}')
+                    f'cannot get ip from netbox for {item.name, device_hostname},  {error.__class__.__name__}')
     logging.warning('finished collecting data from secrets')
     return dict_devices
 
@@ -122,7 +122,7 @@ def get_config_and_write(tup_hostname_device: tuple):
 
 def git_push():
     path_repo = Path.cwd()
-    commit_msg = f'new commit of backup done at {time.strftime(format_date, time.localtime())}'
+    commit_msg = f'new commit of backup done at {time.strftime(log_format_date, time.localtime())}'
     repo = Repo(path_repo)
     repo.index.add([FOLDER_BACKUP, FILENAME_LOG])
     repo.index.commit(commit_msg)
