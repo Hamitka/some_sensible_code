@@ -28,7 +28,7 @@ DICT_IFACE_TYPE = {
 }
 
 
-class GetIntFromDevice:
+class NetworkDevice:
     pattern_iface_parts = ''    # было pattern_int_parts
     pattern_switchport_parts = ''
     pattern_description = ''
@@ -55,13 +55,13 @@ class GetIntFromDevice:
 
     def set_child_class(self):
         if self.vendor == 'Cisco':
-            return GetIntFromDeviceCisco(self.nb_device)
+            return NetworkDeviceCisco(self.nb_device)
         elif self.vendor == 'HPE':
-            return GetIntFromDeviceHPE(self.nb_device)
+            return NetworkDeviceHPE(self.nb_device)
         elif self.vendor == 'Juniper':
-            return GetIntFromDeviceJuniper(self.nb_device)
+            return NetworkDeviceJuniper(self.nb_device)
         else:
-            return GetIntFromDevice(self.nb_device)
+            return NetworkDevice(self.nb_device)
 
     def _get_data_from_netbox(self):
         dict_device = {
@@ -238,7 +238,7 @@ class GetIntFromDevice:
         return True
 
 
-class GetIntFromDeviceCisco(GetIntFromDevice):
+class NetworkDeviceCisco(NetworkDevice):
     pattern_iface_parts = re.compile(r'\n(?=\S)')
     pattern_switchport_parts = re.compile(r'Name: ')
     pattern_description = re.compile(r' Description: (.*)\n')
@@ -261,7 +261,7 @@ class GetIntFromDeviceCisco(GetIntFromDevice):
         }
 
 
-class GetIntFromDeviceHPE(GetIntFromDevice):
+class NetworkDeviceHPE(NetworkDevice):
     pattern_iface_parts = re.compile(r'\n\n')
     # pattern_switchport_parts = re.compile(r'Name: ')
     pattern_description = re.compile(r'Description: (?!.*Interface)(.*)\n')
@@ -284,7 +284,7 @@ class GetIntFromDeviceHPE(GetIntFromDevice):
         }
 
 
-class GetIntFromDeviceJuniper(GetIntFromDevice):
+class NetworkDeviceJuniper(NetworkDevice):
     def __init__(self, some_device_from_nb):
         super().__init__(some_device_from_nb)
         self.device_platform = 'juniper_junos'
@@ -295,7 +295,7 @@ class GetIntFromDeviceJuniper(GetIntFromDevice):
 def main():
     test_device_from_nb = NB.dcim.devices.get(name='bas-gw-ufa_oktyabrskoy_revolyucii-MSR3012')
     # test_device_from_nb = NB.dcim.devices.get(name='kur-gw-lipovchik-C1111')
-    test = GetIntFromDevice(test_device_from_nb).set_child_class()
+    test = NetworkDevice(test_device_from_nb).set_child_class()
     test_some_device = test._collect_data_for_netbox()
     print(test_some_device)
     # test.fill_data_in_netbox()
